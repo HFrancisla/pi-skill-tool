@@ -1,0 +1,16 @@
+# 生成物 —— 每台机器的 pi SDK 位置不同,不进版本库
+tsconfig.json
+
+# 依赖
+node_modules/
+
+# 系统 / 编辑器
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志
+*.log
+npm-debug.log*

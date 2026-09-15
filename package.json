@@ -1,0 +1,53 @@
+{
+  "name": "@hfrancisla/pi-skill-tool",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Claude Code-compatible `skill` tool for pi. Registers the tool and makes pi's skill block name-based: swaps the loading instruction and drops the now-redundant paths, keeping every skill description intact.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "skills",
+    "agent-skills"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HFrancisla/pi-skill-tool.git"
+  },
+  "homepage": "https://github.com/HFrancisla/pi-skill-tool#readme",
+  "bugs": {
+    "url": "https://github.com/HFrancisla/pi-skill-tool/issues"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "scripts": {
+    "gen:tsconfig": "node scripts/gen-tsconfig.mjs",
+    "typecheck": "node scripts/gen-tsconfig.mjs && tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

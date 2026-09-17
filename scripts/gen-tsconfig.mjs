@@ -105,7 +105,7 @@ const tsconfig = {
 		types: [],
 		// 注意:不要加 baseUrl。
 		// `paths` 里是绝对路径,本来就不需要 baseUrl;而 TypeScript 7 已经**移除了**
-		// 这个选顶(TS5102),加了会让 TS7 直接报错。已验证:去掉它后 TS 5.9 与 7.0 均通过。
+		// 这个选项(TS5102),加了会让 TS7 直接报错。已验证:去掉它后 TS 5.9 与 7.0 均通过。
 		paths: {
 			[PKG]: [join(sdkRoot, "dist", "index.d.ts")],
 			typebox: [typeboxEntry],

@@ -51,8 +51,8 @@ import { Type } from "typebox";
 /** 小写以符合 pi 的内置工具惯例。 */
 const TOOL_NAME = "skill";
 
-/** true 则连 disable-model-invocation 的 skill 也允许模型加载（支持自然语言点名、Handoff 交接与链路委派）。 */
-const ALLOW_USER_ONLY = true;
+/** true 则连 disable-model-invocation 的 skill 也允许模型加载（会绕过 skill 作者的手动触发设计，慎用）。 */
+const ALLOW_USER_ONLY = false;
 
 /**
  * pi 生成的原生加载指令 —— 二选一(read 或 bash),取决于当前激活的工具。

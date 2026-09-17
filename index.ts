@@ -50,8 +50,8 @@ import { Type } from "typebox";
 /** 小写以符合 pi 的内置工具惯例。 */
 const TOOL_NAME = "skill";
 
-/** true 则连 disable-model-invocation 的 skill 也允许模型加载(不推荐:会绕过用户的手动触发设计)。 */
-const ALLOW_USER_ONLY = false;
+/** true 则连 disable-model-invocation 的 skill 也允许模型加载（支持自然语言点名、Handoff 交接与链路委派）。 */
+const ALLOW_USER_ONLY = true;
 
 /**
  * pi 生成的原生加载指令 —— 二选一(read 或 bash),取决于当前激活的工具。
@@ -94,7 +94,7 @@ const PARAMETERS = Type.Object(
 	{
 		name: Type.String({
 			minLength: 1,
-			description: "Exact skill name, as listed in available_skills.",
+			description: "The name of the skill to load.",
 		}),
 	},
 	{ additionalProperties: false },

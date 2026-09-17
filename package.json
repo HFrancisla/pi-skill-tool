@@ -1,9 +1,10 @@
 {
   "name": "@hfrancisla/pi-skill-tool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Claude Code-compatible `skill` tool for pi. Registers the tool and makes pi's skill block name-based: swaps the loading instruction and drops the now-redundant paths, keeping every skill description intact.",
+  "description": "Claude Code-compatible `skill` tool for pi. Loads skills by exact name, drops the redundant <location> paths and the always-on Pi documentation block (re-exposed as a virtual `pi-docs` skill), and can load skills marked disable-model-invocation — ~700 prompt tokens smaller, every skill name and description intact.",
   "license": "MIT",
+  "author": "Francisla.H <hfrancisla@gmail.com>",
   "keywords": [
     "pi-package",
     "pi-extension",

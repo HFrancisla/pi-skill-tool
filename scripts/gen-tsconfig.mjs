@@ -101,6 +101,7 @@ const tsconfig = {
 		moduleResolution: "bundler",
 		strict: true,
 		noEmit: true,
+		allowImportingTsExtensions: true,
 		skipLibCheck: true,
 		types: [],
 		// 注意:不要加 baseUrl。
@@ -111,7 +112,7 @@ const tsconfig = {
 			typebox: [typeboxEntry],
 		},
 	},
-	include: ["index.ts"],
+	include: ["index.ts", "src/**/*.ts", "test/**/*.ts"],
 };
 
 writeFileSync(OUT, JSON.stringify(tsconfig, null, 2) + "\n");

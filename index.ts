@@ -40,56 +40,19 @@
  */
 
 import {
-	parseFrontmatter,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type SourceInfo,
 } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
 import { Type } from "typebox";
+import { transformPrompt } from "./src/prompt-transformer.ts";
+import { SkillCatalog } from "./src/skill-catalog.ts";
 
 /** 小写以符合 pi 的内置工具惯例。 */
 const TOOL_NAME = "skill";
 
 /** true 则连 disable-model-invocation 的 skill 也允许模型加载（会绕过 skill 作者的手动触发设计，慎用）。 */
 const ALLOW_USER_ONLY = false;
-
-/**
- * pi 生成的原生加载指令 —— 二选一(read 或 bash),取决于当前激活的工具。
- * 见 pi 的 formatSkillsForPrompt():
- *   fileReadTool === "read" ? "Use the read tool ..." : "Use bash ..."
- */
-const NATIVE_INSTRUCTIONS = [
-	"Use the read tool to load a skill's file when the task matches its description.",
-	"Use bash to load a skill's file when the task matches its description.",
-] as const;
-
-/** 替换目标:指向本工具。措辞尽量贴着原生那句,便于模型迁移。 */
-const SKILL_INSTRUCTION =
-	"Use the skill tool to load a skill by name when the task matches its description.";
-
-/**
- * pi 的"相对路径解析"规则 —— 路径加载模式的补丁。
- *
- * 原意:模型用 `read` 读到一个 SKILL.md 后,正文里若有 `references/x.md` 这类相对
- * 引用,模型得自己算出"那个文件在哪个目录"才能解析。
- *
- * 名称加载下这条规则不再需要:工具在返回正文时已经直接给出 `Base directory: <绝对路径>`
- * —— 给的是**结果**,不是让模型去推导的**规则**。
- */
-const PATH_RULE =
-	"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n";
-
-/** 内置虚拟技能名：Pi 文档导航 */
-const PI_DOCS_NAME = "pi-docs";
-
-/** 虚拟技能描述：精准触发针对 pi 自身的二次开发指导 */
-const PI_DOCS_DESC =
-	"Read documentation and development guides for pi itself, its SDK, extensions, themes, skills, and TUI.";
-
-/** 匹配并捕获原有的 Pi documentation 文本块 */
-const PI_DOCS_BLOCK_REGEX =
-	/\n\nPi documentation \(read only when the user asks about pi itself[\s\S]*?\(e\.g\., tui\.md for TUI API details\)/;
 
 const PARAMETERS = Type.Object(
 	{
@@ -125,40 +88,8 @@ type SkillEntry = {
 	disableModelInvocation: boolean;
 };
 
-/**
- * 与 pi 内部 escapeXml 完全一致(pi 没有导出它)。必要性:`formatSkillsForPrompt`
- * 对 <name>/<description>/<location> 都做了转义,要精确匹配那行 <location>,
- * 就必须用同样的转义规则。`&` 必须最先处理。
- */
-function escapeXml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&apos;");
-}
-
-/** `<location>` 行在提示里的确切形态(4 空格缩进 + 尾随换行)。 */
-function locationLine(filePath: string): string {
-	return `    <location>${escapeXml(filePath)}</location>\n`;
-}
-
-function readBody(filePath: string): string | null {
-	try {
-		const { body } = parseFrontmatter<Record<string, unknown>>(
-			readFileSync(filePath, "utf8"),
-		);
-		const trimmed = body.trim();
-		return trimmed.length > 0 ? trimmed : null;
-	} catch {
-		return null;
-	}
-}
-
 export default function skillTool(pi: ExtensionAPI) {
-	let skills: SkillEntry[] = [];
-	let capturedPiDocs: string | null = null;
+	const catalog = new SkillCatalog({ allowUserOnly: ALLOW_USER_ONLY });
 	const warned = new Set<string>();
 
 	/**
@@ -178,94 +109,26 @@ export default function skillTool(pi: ExtensionAPI) {
 		}
 	}
 
-	const visible = (list: SkillEntry[]) => list.filter((s) => !s.disableModelInvocation);
-	const callable = () => (ALLOW_USER_ONLY ? skills : visible(skills));
-	const names = () => {
-		const list = callable().map((s) => s.name);
-		if (capturedPiDocs && !list.includes(PI_DOCS_NAME)) {
-			list.push(PI_DOCS_NAME);
-		}
-		return list;
-	};
-
 	// 捕获 pi 的发现结果,并把 skill 块改造成纯名称制。
 	pi.on("before_agent_start", (event, ctx) => {
-		let prompt = event.systemPrompt;
-		let modified = false;
-
-		// 剥离并捕获常驻的 Pi documentation 段落（将其下沉为内存虚拟技能）
-		const docsMatch = prompt.match(PI_DOCS_BLOCK_REGEX);
-		if (docsMatch) {
-			capturedPiDocs = docsMatch[0].trim();
-			prompt = prompt.replace(docsMatch[0], "");
-			modified = true;
-		} else if (prompt.includes("Available tools:")) {
-			// 正则的失效面：头尾任一处措辞一变就整体失配。失配不报错，只是静默退化成
-			// “docs 块照付 + pi-docs 不存在” —— 所以必须出声。`Available tools:` 是默认
-			// 模板特有的标记，用来排除自定义 system prompt（那种提示里本来就没有这段）。
-			warnOnce(
-				"docs-block-not-found",
-				"未在系统提示中找到 Pi documentation 段落(pi 的措辞可能已变更);已保留它,未注册虚拟技能 pi-docs。",
-				ctx,
-			);
-		}
-
 		const discovered = event.systemPromptOptions?.skills as SkillEntry[] | undefined;
-		if (discovered && discovered.length > 0) skills = discovered;
+		catalog.update({ skills: discovered });
 
-		// pi 只在存在"模型可见"的 skill 时才生成那块提示 —— 没有就不必处理。
-		const shown = visible(discovered ?? []);
-		if (shown.length > 0) {
-			const native = NATIVE_INSTRUCTIONS.find((line) =>
-				prompt.includes(line),
-			);
-			if (!native) {
-				// pi 换了措辞。不改提示(保持可用),只警告一次。
-				warnOnce(
-					"instruction-not-found",
-					"pi 的 skill 加载指令未在系统提示中找到(措辞可能已变更);已保持提示原样,skill 工具仍可用。",
-					ctx,
-				);
-			} else {
-				// ① 加载指令:read/bash → skill
-				prompt = prompt.replace(native, SKILL_INSTRUCTION);
+		const result = transformPrompt({
+			prompt: event.systemPrompt,
+			skills: discovered,
+			existingCapturedDocs: catalog.getCapturedDocs(),
+		});
 
-				// ② 删掉相对路径解析规则 —— 路径加载模式的补丁,名称加载下多余。
-				//    连同它那一行换行一起删,留下的空行正好把指令与 <available_skills> 隔开。
-				prompt = prompt.replace(PATH_RULE, "");
-
-				// ③ 删掉每条 <location> —— 模型不再按路径加载;留着是绕过工具的入口。
-				//    逐条精确匹配(按各自的 filePath),不做结构性匹配;找不到就跳过,无害。
-				let removed = 0;
-				for (const skill of shown) {
-					const line = locationLine(skill.filePath);
-					if (prompt.includes(line)) {
-						prompt = prompt.replace(line, "");
-						removed += 1;
-					}
-				}
-				if (removed === 0) {
-					warnOnce(
-						"locations-not-found",
-						"未在系统提示中找到任何 <location> 行(pi 的输出格式可能已变更);已保留它们。",
-						ctx,
-					);
-				}
-
-				// ④ 在 <available_skills> 列表中追加注入 pi-docs 虚拟条目
-				if (
-					capturedPiDocs &&
-					prompt.includes("</available_skills>") &&
-					!prompt.includes(`<name>${PI_DOCS_NAME}</name>`)
-				) {
-					const virtualEntry = `  <skill>\n    <name>${PI_DOCS_NAME}</name>\n    <description>${PI_DOCS_DESC}</description>\n  </skill>\n</available_skills>`;
-					prompt = prompt.replace("</available_skills>", virtualEntry);
-				}
-				modified = true;
-			}
+		if (result.capturedDocs) {
+			catalog.update({ capturedDocs: result.capturedDocs });
 		}
 
-		return modified ? { systemPrompt: prompt } : undefined;
+		for (const warning of result.warnings) {
+			warnOnce(warning.code, warning.message, ctx);
+		}
+
+		return result.modified ? { systemPrompt: result.prompt } : undefined;
 	});
 
 	pi.registerTool<typeof PARAMETERS, SkillToolDetails>({
@@ -277,9 +140,6 @@ export default function skillTool(pi: ExtensionAPI) {
 		parameters: PARAMETERS,
 
 		async execute(_toolCallId, params, signal) {
-			const rawName = String(params.name ?? "").trim();
-			const name = rawName.toLowerCase();
-
 			if (signal?.aborted) {
 				return {
 					content: [{ type: "text" as const, text: "Aborted." }],
@@ -287,108 +147,52 @@ export default function skillTool(pi: ExtensionAPI) {
 				};
 			}
 
-			// 拦截虚拟技能 pi-docs：直接返回内存中捕获的文档指引与路径
-			if (name === PI_DOCS_NAME) {
-				if (!capturedPiDocs) {
+			const outcome = catalog.resolve(params.name);
+
+			if (outcome.ok) {
+				if (outcome.kind === "virtual") {
 					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Skill "${PI_DOCS_NAME}" is not available in this session.`,
-							},
-						],
-						details: { error: "not-found" as const, available: names() },
+						content: [{ type: "text" as const, text: outcome.content }],
+						details: { name: outcome.name },
 					};
 				}
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: capturedPiDocs,
-						},
-					],
+					content: [{ type: "text" as const, text: outcome.content }],
 					details: {
-						name: PI_DOCS_NAME,
+						name: outcome.name,
+						filePath: outcome.filePath,
+						baseDir: outcome.baseDir,
+						sourceInfo: outcome.sourceInfo as SourceInfo,
 					},
 				};
 			}
 
-			if (skills.length === 0) {
-				return {
-					content: [
-						{ type: "text" as const, text: "No skills are loaded in this session." },
-					],
-					details: { error: "no-skills" as const },
-				};
-			}
-
-			// 优先精确匹配，其次自动做小写归一化容错（兼容模型传入 TDD、PDF、Grilling 等大小写幻觉）
-			const skill =
-				skills.find((s) => s.name === rawName) ??
-				skills.find((s) => s.name.toLowerCase() === name);
-
-			if (!skill) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text:
-								`No skill named "${rawName}". ` +
-								`Available: ${names().join(", ") || "(none)"}`,
+			switch (outcome.error) {
+				case "not-found":
+					return {
+						content: [{ type: "text" as const, text: outcome.message }],
+						details: { error: "not-found", available: outcome.available },
+					};
+				case "user-only":
+					return {
+						content: [{ type: "text" as const, text: outcome.message }],
+						details: { error: "user-only", name: outcome.skillName },
+					};
+				case "empty-body":
+					return {
+						content: [{ type: "text" as const, text: outcome.message }],
+						details: {
+							error: "empty-body",
+							name: outcome.skillName,
+							filePath: outcome.filePath,
 						},
-					],
-					details: { error: "not-found" as const, available: names() },
-				};
+					};
+				case "no-skills":
+					return {
+						content: [{ type: "text" as const, text: outcome.message }],
+						details: { error: "no-skills" },
+					};
 			}
-
-			if (skill.disableModelInvocation && !ALLOW_USER_ONLY) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text:
-								`Skill "${name}" is user-invocable only ` +
-								`(disable-model-invocation: true). ` +
-								`Ask the user to run /skill:${name}.`,
-						},
-					],
-					details: { error: "user-only" as const, name: skill.name },
-				};
-			}
-
-			const body = readBody(skill.filePath);
-			if (body === null) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Skill "${name}" has an empty or unreadable body (${skill.filePath}).`,
-						},
-					],
-					details: {
-						error: "empty-body" as const,
-						name: skill.name,
-						filePath: skill.filePath,
-					},
-				};
-			}
-
-			// 带上 baseDir:这是那条"相对路径规则"被删掉之后,模型解析正文里
-			// 相对引用的唯一依据 —— 给的是结果,不是让它推导的规则。
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: `Base directory: ${skill.baseDir}\n\n${body}`,
-					},
-				],
-				details: {
-					name: skill.name,
-					filePath: skill.filePath,
-					baseDir: skill.baseDir,
-					sourceInfo: skill.sourceInfo,
-				},
-			};
 		},
 	});
 }

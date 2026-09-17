@@ -249,17 +249,9 @@ export default function skillTool(pi: ExtensionAPI) {
 	pi.registerTool<typeof PARAMETERS, SkillToolDetails>({
 		name: TOOL_NAME,
 		label: "Skill",
-		description: [
-			"Load a skill's full instructions by name.",
-			"Skills provide specialized workflows and reference material for a specific task.",
-			"Use this when a task matches a skill's description listed in available_skills,",
-			"or when a loaded skill's instructions tell you to call the skill tool for another skill.",
-		].join(" "),
+		description: "Load a skill's full instructions and workflow by exact name.",
 		promptSnippet: "Load a skill's full instructions by name",
-		promptGuidelines: [
-			"Load the matching skill with the skill tool by exact name before acting on the task.",
-			"When a loaded skill directs you to another skill by name, load that one the same way.",
-		],
+		promptGuidelines: ["skill: load a skill by exact name when the task matches its description."],
 		parameters: PARAMETERS,
 
 		async execute(_toolCallId, params, signal) {

@@ -1,6 +1,6 @@
 {
   "name": "@hfrancisla/pi-skill-tool",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Claude Code-compatible `skill` tool for pi. Loads skills by exact name, drops the redundant <location> paths and the always-on Pi documentation block (re-exposed as a virtual `pi-docs` skill) — ~700 prompt tokens smaller, every skill name and description intact.",
   "license": "MIT",

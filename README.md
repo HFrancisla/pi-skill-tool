@@ -96,10 +96,13 @@ pi install npm:@hfrancisla/pi-skill-tool
 
 ## 本地开发
 
-若需对源码进行二次开发或修改，可在本地执行类型检查：
+克隆仓库后进行类型检查：
 
 ```bash
+git clone https://github.com/HFrancisla/pi-skill-tool
+cd pi-skill-tool
+npm install
 npm run typecheck
 ```
 
-*注：通过 `scripts/gen-tsconfig.mjs` 自动从当前运行环境中定位本机 pi SDK 绝对路径并生成适配本机的 `tsconfig.json`，无需额外安装庞大的 SDK 开发依赖。*
+*注：`scripts/gen-tsconfig.mjs` 会自动定位本机 pi SDK 的绝对路径并生成适配本机的 `tsconfig.json`，无需安装庞大的 SDK 开发依赖。`scripts/` 与 `devDependencies` 都不进 npm 包，所以这套流程只在克隆的仓库里可用。*

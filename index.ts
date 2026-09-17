@@ -42,6 +42,7 @@
 import {
 	parseFrontmatter,
 	type ExtensionAPI,
+	type ExtensionContext,
 	type SourceInfo,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
@@ -160,11 +161,21 @@ export default function skillTool(pi: ExtensionAPI) {
 	let capturedPiDocs: string | null = null;
 	const warned = new Set<string>();
 
-	/** 同一条警告只说一次,避免每个 agent 循环都刷屏。 */
-	function warnOnce(key: string, message: string): void {
+	/**
+	 * 同一条警告只说一次，避免每个 agent 循环都刷屏。
+	 *
+	 * 优先走 TUI 通知：pi 没有安装 process 的 warning 处理器，`emitWarning` 只会写 stderr，
+	 * 全屏 TUI 里未必看得见。print / JSON 模式下 `ctx.ui` 是 pi 的 noOpUIContext（notify 为空函数），
+	 * 所以那时回退到 stderr —— 脚本场景下它反而是唯一出口。
+	 */
+	function warnOnce(key: string, message: string, ctx?: ExtensionContext): void {
 		if (warned.has(key)) return;
 		warned.add(key);
-		process.emitWarning(message, { code: "PI_SKILL_TOOL" });
+		if (ctx?.hasUI) {
+			ctx.ui.notify(message, "warning");
+		} else {
+			process.emitWarning(message, { code: "PI_SKILL_TOOL" });
+		}
 	}
 
 	const visible = (list: SkillEntry[]) => list.filter((s) => !s.disableModelInvocation);
@@ -178,7 +189,7 @@ export default function skillTool(pi: ExtensionAPI) {
 	};
 
 	// 捕获 pi 的发现结果,并把 skill 块改造成纯名称制。
-	pi.on("before_agent_start", (event) => {
+	pi.on("before_agent_start", (event, ctx) => {
 		let prompt = event.systemPrompt;
 		let modified = false;
 
@@ -204,6 +215,7 @@ export default function skillTool(pi: ExtensionAPI) {
 				warnOnce(
 					"instruction-not-found",
 					"pi 的 skill 加载指令未在系统提示中找到(措辞可能已变更);已保持提示原样,skill 工具仍可用。",
+					ctx,
 				);
 			} else {
 				// ① 加载指令:read/bash → skill
@@ -227,6 +239,7 @@ export default function skillTool(pi: ExtensionAPI) {
 					warnOnce(
 						"locations-not-found",
 						"未在系统提示中找到任何 <location> 行(pi 的输出格式可能已变更);已保留它们。",
+						ctx,
 					);
 				}
 

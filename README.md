@@ -21,9 +21,36 @@
 
 ---
 
+## 技能类型与可见性
+
+pi 里同时存在三类技能，差别不在内容而在**谁有权触发**：
+
+| 类型 | 判定依据 | 进系统提示词？ | 模型能加载？ | 谁触发 |
+|---|---|---|---|---|
+| **普通技能** | 无 `disable-model-invocation` | ✅ `name` + `description` + `<location>`（本扩展删掉 `<location>`） | ✅ | 模型自主判断，或你 `/skill:name` |
+| **隐藏技能** | `disable-model-invocation: true` | ❌ **整条不出现**（pi 的 `formatSkillsForPrompt` 直接过滤掉） | ❌ 返回 `user-only`，并提示模型请你运行 `/skill:name` | **只有你**，在输入框敲 `/skill:name` |
+| **虚拟 `pi-docs`** | 由本扩展注入 | ✅ `name` + `description`（注入时就没有 `<location>`） | ✅ 从内存返回 pi 的文档块 | 模型（你问到 pi 自身相关的问题时） |
+
+**“可见”有两个通道，别混淆**：隐藏技能只是对**模型**不可见，对**你**完全可见 —— 它们照常出现在 `/skill:` 补全菜单里（pi 的命令注册表不过滤隐藏技能），输入框敲名字永远能用（补全菜单可由设置 `enableSkillCommands` 关闭，默认开启；关掉只影响补全，直接敲命令照样展开）。这正是 `disable-model-invocation` 的语义：把触发权留给人。
+
+两个容易踩的细节：
+
+- **隐藏技能是“整条不出现”，不是“被删了路径”。** 本扩展删 `<location>` 只作用于 pi 已列出的条目；隐藏技能根本不在那份列表里，扩展也从不往列表里加隐藏技能。
+- **`/skill:xxx` 只认磁盘上真实存在的技能**（走 pi 的资源加载器，与本扩展无关），所以对注入的 `pi-docs` 无效 —— 敲 `/skill:pi-docs` 只会把这段文字原样发给模型。
+
+> 若把 `ALLOW_USER_ONLY` 改成 `true`，上表第二行的后两格会变成 ✅（模型也能加载隐藏技能），代价见上一节。
+
+---
+
 ## 提示词改动效果
 
 ```diff
+  Available tools:
++ - skill: Load a skill's full instructions by name
+
+  Guidelines:
++ - skill: load a skill by exact name when the task matches its description.
+
 - Pi documentation (read only when the user asks about pi itself, its SDK, extensions...):
 - - Main documentation: /path/to/pi/README.md
 - - Additional docs: /path/to/pi/docs
@@ -77,8 +104,8 @@
 
 ### 执行逻辑与返回格式
 
-- **常规物理技能**：精确定位 `SKILL.md`，自动剥离 YAML frontmatter；返回首行带上 `Base directory: <绝对路径>`，确保技能正文内的相对引用（如 `references/x.md`）可正常解析。
-- **虚拟技能 `pi-docs`**：直接从内存闭包返回启动时动态捕获的当前环境真实文档路径与指南，零磁盘 I/O。
+- **常规物理技能**：按名字在 pi 的发现结果里定位（`filePath` 由 pi 提供，不做文件系统搜索），自动剥离 YAML frontmatter；返回首行带上 `Base directory: <绝对路径>`，确保技能正文内的相对引用（如 `references/x.md`）可正常解析。
+- **虚拟技能 `pi-docs`**：直接从内存闭包返回每次 agent 循环开始时从系统提示中捕获的文档块与真实路径，零磁盘 I/O。
 - **大小写容错归一化**：当模型传入大写或首字母大写（如 `TDD`、`PDF`、`Grilling`）时自动进行小写归一化匹配，防止模型大小写幻觉导致执行失败。
 - **统一 Details 结构**：执行失败时返回统一的机器可读标识（`no-skills`、`not-found`、`user-only`、`empty-body`、`aborted`）及清晰的文本提示。
 
@@ -95,6 +122,8 @@ pi install npm:@hfrancisla/pi-skill-tool
 ### 验证
 
 在终端执行带有内部委派的技能（如 `/skill:grill-me`），观察模型是否能够自动成功调用 `skill({"name": "grilling"})` 并获取正文执行。
+
+想确认隐藏技能的边界，可以让模型试 `skill({"name": "grill-me"})` —— 应当返回 `user-only` 并请你改用 `/skill:grill-me`。
 
 ---
 

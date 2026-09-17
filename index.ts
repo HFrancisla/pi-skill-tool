@@ -199,6 +199,15 @@ export default function skillTool(pi: ExtensionAPI) {
 			capturedPiDocs = docsMatch[0].trim();
 			prompt = prompt.replace(docsMatch[0], "");
 			modified = true;
+		} else if (prompt.includes("Available tools:")) {
+			// 正则的失效面：头尾任一处措辞一变就整体失配。失配不报错，只是静默退化成
+			// “docs 块照付 + pi-docs 不存在” —— 所以必须出声。`Available tools:` 是默认
+			// 模板特有的标记，用来排除自定义 system prompt（那种提示里本来就没有这段）。
+			warnOnce(
+				"docs-block-not-found",
+				"未在系统提示中找到 Pi documentation 段落(pi 的措辞可能已变更);已保留它,未注册虚拟技能 pi-docs。",
+				ctx,
+			);
 		}
 
 		const discovered = event.systemPromptOptions?.skills as SkillEntry[] | undefined;

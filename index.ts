@@ -263,7 +263,8 @@ export default function skillTool(pi: ExtensionAPI) {
 		parameters: PARAMETERS,
 
 		async execute(_toolCallId, params, signal) {
-			const name = String(params.name ?? "").trim();
+			const rawName = String(params.name ?? "").trim();
+			const name = rawName.toLowerCase();
 
 			if (signal?.aborted) {
 				return {
@@ -307,7 +308,10 @@ export default function skillTool(pi: ExtensionAPI) {
 				};
 			}
 
-			const skill = skills.find((s) => s.name === name);
+			// 优先精确匹配，其次自动做小写归一化容错（兼容模型传入 TDD、PDF、Grilling 等大小写幻觉）
+			const skill =
+				skills.find((s) => s.name === rawName) ??
+				skills.find((s) => s.name.toLowerCase() === name);
 
 			if (!skill) {
 				return {
@@ -315,7 +319,7 @@ export default function skillTool(pi: ExtensionAPI) {
 						{
 							type: "text" as const,
 							text:
-								`No skill named "${name}". ` +
+								`No skill named "${rawName}". ` +
 								`Available: ${names().join(", ") || "(none)"}`,
 						},
 					],

@@ -18,7 +18,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 
@@ -30,12 +30,33 @@ function isSdkRoot(dir) {
 	return existsSync(join(dir, "dist", "index.d.ts"));
 }
 
-/** 收集候选位置,按可信度排序。 */
+/** Walk upward from a pi executable or bundle entry to find its package root. */
+function findSdkRoot(start) {
+	let current = resolve(start);
+
+	for (;;) {
+		const packageFile = join(current, "package.json");
+		if (existsSync(packageFile)) {
+			try {
+				const packageJson = JSON.parse(readFileSync(packageFile, "utf8"));
+				if (packageJson.name === PKG && isSdkRoot(current)) return current;
+			} catch {
+				/* Continue walking if this package file is unreadable. */
+			}
+		}
+
+		const parent = dirname(current);
+		if (parent === current) return undefined;
+		current = parent;
+	}
+}
+
+/** Collect candidate SDK roots, ordered from most specific to least specific. */
 function candidates() {
 	const out = [];
 
 	// ① 从 `pi` 可执行文件反推。
-	//    典型布局: <prefix>/bin/pi  →  <prefix>/lib/node_modules/@earendil-works/pi-coding-agent
+	//    处理普通 bin 入口以及直接指向 dist/bundle/cli.js 的 managed/mise 入口。
 	try {
 		const sh = process.platform === "win32" ? "where pi" : "command -v pi";
 		const found = execSync(sh, { shell: true, stdio: ["ignore", "pipe", "ignore"] })
@@ -44,13 +65,16 @@ function candidates() {
 			.trim();
 		if (found) {
 			const bin = realpathSync(found);
+			const sdkRoot = findSdkRoot(bin);
+			if (sdkRoot) out.push(sdkRoot);
+
 			const prefix = resolve(dirname(bin), "..");
 			out.push(join(prefix, "lib", "node_modules", ...PKG.split("/")));
 			// Windows: <prefix>/node_modules/...
 			out.push(join(prefix, "node_modules", ...PKG.split("/")));
 		}
 	} catch {
-		/* 没装 pi 或不在这台机器上 —— 继续尝试其他候选 */
+		/* pi may not be installed or may not be on PATH. */
 	}
 
 	// ② 全局 npm root

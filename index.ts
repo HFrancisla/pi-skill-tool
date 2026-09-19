@@ -22,10 +22,8 @@
  * —— 目录在提示里,`Skill` 工具负责执行。原版 pi 用 `read` 加载、没有这个工具,
  * 于是那句话是死指令(pi 不校验 skill 正文,静默失效、不报错)。
  *
- * 本扩展把工具补上,**并把整个块改成名称制**,从而:
- *   · 只有一条加载路径,一个标识符空间(名称),不再出现"指令说名称、数据给路径"的割裂
- *   · skill 之间互相委派("Call the Skill tool with X")可执行
- *   · 目录的 name/description 保真度零损失,同时省下约 24% 的块体积
+ * 本扩展把工具补上,并把模型可见的 skill 目录改造成名称制:模型通过 `skill` 按名称加载额外 skill,
+ * 而用户显式 `/skill:name` 仍由 pi 原生展开。两条入口共享名称解析与权限语义,并避免重复加载。
  *
  * ── 设计取舍:为什么不省更多 ──────────────────────────────────────────────
  * @arhen/pi-core-skill-tool 靠**把描述截断到 100 字符**省 ~4.5K token;
@@ -46,6 +44,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { transformPrompt } from "./src/prompt-transformer.ts";
+import { extractExpandedSkillNames } from "./src/expanded-skills.ts";
 import { SkillCatalog } from "./src/skill-catalog.ts";
 
 /** 小写以符合 pi 的内置工具惯例。 */
@@ -78,6 +77,8 @@ interface SkillToolDetails {
 	error?: "no-skills" | "not-found" | "user-only" | "empty-body" | "aborted";
 	/** 当前会话可被模型调用的 skill 名列表 */
 	available?: string[];
+	/** 工具请求已满足，无需重复读取正文 */
+	status?: "already-loaded";
 }
 
 type SkillEntry = {
@@ -91,6 +92,8 @@ type SkillEntry = {
 export default function skillTool(pi: ExtensionAPI) {
 	const catalog = new SkillCatalog({ allowUserOnly: ALLOW_USER_ONLY });
 	const warned = new Set<string>();
+	/** Skill names loaded in the current agent turn, kept outside the prompt. */
+	let loadedSkillsThisTurn = new Set<string>();
 
 	/**
 	 * 同一条警告只说一次，避免每个 agent 循环都刷屏。
@@ -109,8 +112,10 @@ export default function skillTool(pi: ExtensionAPI) {
 		}
 	}
 
-	// 捕获 pi 的发现结果,并把 skill 块改造成纯名称制。
+	// Capture Pi's native expansion without changing the system prompt dynamically.
 	pi.on("before_agent_start", (event, ctx) => {
+		loadedSkillsThisTurn = extractExpandedSkillNames(event.prompt);
+
 		const discovered = event.systemPromptOptions?.skills as SkillEntry[] | undefined;
 		catalog.update({ skills: discovered });
 
@@ -136,10 +141,13 @@ export default function skillTool(pi: ExtensionAPI) {
 		label: "Skill",
 		description: "Load a skill's full instructions and workflow by exact name.",
 		promptSnippet: "Load a skill's full instructions by name",
-		promptGuidelines: ["skill: load a skill by exact name when the task matches its description."],
+		promptGuidelines: [
+			"skill: load additional skills by exact name; do not reload a skill already expanded in the current user prompt.",
+		],
 		parameters: PARAMETERS,
+		executionMode: "sequential",
 
-		async execute(_toolCallId, params, signal) {
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			if (signal?.aborted) {
 				return {
 					content: [{ type: "text" as const, text: "Aborted." }],
@@ -147,15 +155,34 @@ export default function skillTool(pi: ExtensionAPI) {
 				};
 			}
 
+			const requestedName = params.name.trim().toLowerCase();
+			const loadedNames = new Set(loadedSkillsThisTurn);
+
+			if (loadedNames.has(requestedName)) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text:
+								`Skill "${params.name}" is already loaded in this turn. ` +
+								"Follow it directly.",
+						},
+					],
+					details: { name: params.name, status: "already-loaded" as const },
+				};
+			}
+
 			const outcome = catalog.resolve(params.name);
 
 			if (outcome.ok) {
 				if (outcome.kind === "virtual") {
+					loadedSkillsThisTurn.add(outcome.name.toLowerCase());
 					return {
 						content: [{ type: "text" as const, text: outcome.content }],
 						details: { name: outcome.name },
 					};
 				}
+				loadedSkillsThisTurn.add(outcome.name.toLowerCase());
 				return {
 					content: [{ type: "text" as const, text: outcome.content }],
 					details: {

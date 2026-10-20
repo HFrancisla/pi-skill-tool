@@ -1,6 +1,6 @@
 {
   "name": "@hfrancisla/pi-skill-tool",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "Claude Code-style skill tool for pi. Loads additional skills by exact name, supports skill delegation, and avoids duplicate loads for native /skill:name commands.",
   "license": "MIT",

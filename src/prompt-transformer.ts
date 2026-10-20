@@ -15,6 +15,9 @@ export const NATIVE_INSTRUCTIONS = [
 	"Use bash to load a skill's file when the task matches its description.",
 ] as const;
 
+/** reader 工具隐藏时，Pi 使用不带工具名的加载指令。 */
+const GENERIC_NATIVE_INSTRUCTION = /^[ \t]*Load a skill's file\b[^\r\n]*$/m;
+
 /** 替换目标：指向 skill 工具 */
 export const SKILL_INSTRUCTION =
 	"Use the skill tool to load a skill by name when the task matches its description.";
@@ -110,7 +113,9 @@ export function transformPrompt(input: TransformInput): TransformResult {
 	const shown = (input.skills ?? []).filter((s) => !s.disableModelInvocation);
 	if (shown.length > 0) {
 		const native = NATIVE_INSTRUCTIONS.find((line) => prompt.includes(line));
-		if (!native) {
+		const genericNative = native ? null : prompt.match(GENERIC_NATIVE_INSTRUCTION)?.[0] ?? null;
+		const instruction = native ?? genericNative;
+		if (!instruction) {
 			// pi 换了措辞。不改提示(保持可用),只返回诊断警告
 			warnings.push({
 				code: "instruction-not-found",
@@ -118,8 +123,10 @@ export function transformPrompt(input: TransformInput): TransformResult {
 					"pi 的 skill 加载指令未在系统提示中找到(措辞可能已变更);已保持提示原样,skill 工具仍可用。",
 			});
 		} else {
-			// ① 加载指令: read/bash → skill
-			prompt = prompt.replace(native, SKILL_INSTRUCTION);
+			// ① 加载指令: read/bash 或隐藏 reader 的通用措辞 → skill
+			const indentation = genericNative?.match(/^[ \t]*/)?.[0] ?? "";
+			const replacement = `${indentation}${SKILL_INSTRUCTION}`;
+			prompt = prompt.replace(instruction, replacement);
 
 			// ② 删掉相对路径解析规则
 			prompt = prompt.replace(PATH_RULE, "");

@@ -86,6 +86,41 @@ describe("PromptTransformer", () => {
 		assert.ok(result.prompt.includes(`<description>${PI_DOCS_DESC}</description>`));
 	});
 
+	test("captures Pi docs from section-wrapped system prompts", () => {
+		const skill: PromptSkill = {
+			name: "code-review",
+			filePath: "/home/user/.pi/skills/code-review/SKILL.md",
+		};
+		const docs = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Updated main documentation path
+- Updated documentation details`;
+		const inputPrompt = `<tools>
+- read: Read a file
+</tools>
+
+<docs>
+${docs}
+</docs>
+
+<skills>
+The following skills provide specialized instructions for specific tasks.
+${NATIVE_INSTRUCTIONS[0]}
+${PATH_RULE}<available_skills>
+  <skill>
+    <name>${skill.name}</name>
+    <description>Description for ${skill.name}</description>
+${locationLine(skill.filePath)}  </skill>
+</available_skills>
+</skills>`;
+
+		const result = transformPrompt({ prompt: inputPrompt, skills: [skill] });
+
+		assert.equal(result.capturedDocs, docs);
+		assert.ok(!result.prompt.includes("<docs>"));
+		assert.ok(!result.prompt.includes("Pi documentation (read only when"));
+		assert.ok(result.prompt.includes(`<name>${PI_DOCS_NAME}</name>`));
+	});
+
 	test("handles bash instruction variant", () => {
 		const skills: PromptSkill[] = [
 			{ name: "code-review", filePath: "/home/user/.pi/skills/code-review/SKILL.md" },
@@ -164,6 +199,15 @@ describe("PromptTransformer", () => {
 		assert.ok(result.warnings.some((w) => w.code === "docs-block-not-found"));
 		assert.equal(result.capturedDocs, null);
 		assert.ok(!result.prompt.includes(`<name>${PI_DOCS_NAME}</name>`));
+	});
+
+	test("warns when docs are missing from a sectioned system prompt", () => {
+		const result = transformPrompt({
+			prompt: "<tools>- read: Read a file</tools>",
+			skills: [],
+		});
+
+		assert.ok(result.warnings.some((w) => w.code === "docs-block-not-found"));
 	});
 
 	test("warns when native instruction is not found and leaves prompt unmodified", () => {

@@ -33,9 +33,9 @@ export const PI_DOCS_NAME = "pi-docs";
 export const PI_DOCS_DESC =
 	"Read documentation and development guides for pi itself, its SDK, extensions, themes, skills, and TUI.";
 
-/** 匹配并捕获原有的 Pi documentation 文本块 */
+/** 匹配 Pi 默认提示词中的文档块（旧版裸文本与当前 <docs> 区块）。 */
 export const PI_DOCS_BLOCK_REGEX =
-	/\n\nPi documentation \(read only when the user asks about pi itself[\s\S]*?\(e\.g\., tui\.md for TUI API details\)/;
+	/<docs>\n(Pi documentation \(read only when the user asks about pi itself[\s\S]*?)\n<\/docs>|\n\n(Pi documentation \(read only when the user asks about pi itself[\s\S]*?\(e\.g\., tui\.md for TUI API details\))/;
 
 /**
  * 技能结构接口（自包含定义，不依赖任何外部 SDK）
@@ -98,10 +98,10 @@ export function transformPrompt(input: TransformInput): TransformResult {
 	// ① 剥离并捕获常驻的 Pi documentation 段落
 	const docsMatch = prompt.match(PI_DOCS_BLOCK_REGEX);
 	if (docsMatch) {
-		capturedDocs = docsMatch[0].trim();
+		capturedDocs = (docsMatch[1] ?? docsMatch[2] ?? docsMatch[0]).trim();
 		prompt = prompt.replace(docsMatch[0], "");
 		modified = true;
-	} else if (prompt.includes("Available tools:")) {
+	} else if (prompt.includes("Available tools:") || prompt.includes("<tools>")) {
 		warnings.push({
 			code: "docs-block-not-found",
 			message:

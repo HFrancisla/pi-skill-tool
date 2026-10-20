@@ -114,7 +114,9 @@ export default function skillTool(pi: ExtensionAPI) {
 
 	// Capture Pi's native expansion without changing the system prompt dynamically.
 	pi.on("before_agent_start", (event, ctx) => {
-		loadedSkillsThisTurn = extractExpandedSkillNames(event.prompt);
+		loadedSkillsThisTurn = extractExpandedSkillNames(
+			event.messageType === "user" ? event.prompt : undefined,
+		);
 
 		const discovered = event.systemPromptOptions?.skills as SkillEntry[] | undefined;
 		catalog.update({ skills: discovered });

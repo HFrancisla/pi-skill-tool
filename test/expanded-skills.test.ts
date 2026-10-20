@@ -36,6 +36,10 @@ describe("extractExpandedSkillNames", () => {
 		assert.deepEqual([...names], []);
 	});
 
+	test("returns no names when a custom run has no user prompt", () => {
+		assert.deepEqual([...extractExpandedSkillNames(undefined)], []);
+	});
+
 	test("returns no names for ordinary user text", () => {
 		assert.deepEqual([...extractExpandedSkillNames("Please review this plan.")], []);
 	});

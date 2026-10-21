@@ -9,6 +9,7 @@ import {
 	PI_DOCS_NAME,
 	SKILL_INSTRUCTION,
 	transformPrompt,
+	transformPromptSections,
 	type PromptSkill,
 } from "../src/prompt-transformer.ts";
 
@@ -119,6 +120,49 @@ ${locationLine(skill.filePath)}  </skill>
 		assert.ok(!result.prompt.includes("<docs>"));
 		assert.ok(!result.prompt.includes("Pi documentation (read only when"));
 		assert.ok(result.prompt.includes(`<name>${PI_DOCS_NAME}</name>`));
+	});
+
+	test("only changes docs and matched text in skills, preserving all other sections", () => {
+		const skill: PromptSkill = {
+			name: "code-review",
+			filePath: "/home/user/.pi/skills/code-review/SKILL.md",
+		};
+		const docsText = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation path`;
+		const docs = `<docs>\n${docsText}\n</docs>`;
+		const preservedPrefix = "Extension skill note: retain this prefix.\n\n";
+		const preservedSuffix = "\n\nExtension skill note: retain this suffix.";
+		const skillSection = `<skills>\n${preservedPrefix}The following skills provide specialized instructions for specific tasks.
+${NATIVE_INSTRUCTIONS[0]}
+${PATH_RULE}<available_skills>
+  <skill>
+    <name>${skill.name}</name>
+    <description>Description for ${skill.name}</description>
+${locationLine(skill.filePath)}  </skill>
+</available_skills>${preservedSuffix}\n</skills>`;
+		const rules = "<rules>\nKeep the original rules section unchanged.\n</rules>";
+		const mcpServers = "<mcp_servers>\n- mcp__context7 (codemode): docs lookup\n</mcp_servers>";
+		const tools = "<tools>\n- read: Read a file\n</tools>";
+		const sections: Record<string, string | null> = {
+			tools,
+			docs,
+			skills: skillSection,
+			rules,
+			mcp_servers: mcpServers,
+		};
+
+		const result = transformPromptSections(sections, [skill]);
+
+		assert.equal(result.capturedDocs, docsText);
+		assert.equal(sections.docs, null);
+		assert.ok(sections.skills?.startsWith(`<skills>\n${preservedPrefix}`));
+		assert.ok(sections.skills?.endsWith(`${preservedSuffix}\n</skills>`));
+		assert.ok(sections.skills?.includes(SKILL_INSTRUCTION));
+		assert.ok(sections.skills?.includes(`<name>${PI_DOCS_NAME}</name>`));
+		assert.ok(!sections.skills?.includes("<location>"));
+		assert.equal(sections.tools, tools);
+		assert.equal(sections.rules, rules);
+		assert.equal(sections.mcp_servers, mcpServers);
 	});
 
 	test("handles bash instruction variant", () => {

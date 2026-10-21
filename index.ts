@@ -43,7 +43,7 @@ import {
 	type SourceInfo,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { transformPrompt } from "./src/prompt-transformer.ts";
+import { transformPrompt, transformPromptSections } from "./src/prompt-transformer.ts";
 import { extractExpandedSkillNames } from "./src/expanded-skills.ts";
 import { SkillCatalog } from "./src/skill-catalog.ts";
 
@@ -94,6 +94,7 @@ export default function skillTool(pi: ExtensionAPI) {
 	const warned = new Set<string>();
 	/** Skill names loaded in the current agent turn, kept outside the prompt. */
 	let loadedSkillsThisTurn = new Set<string>();
+	let discoveredSkills: SkillEntry[] = [];
 
 	/**
 	 * 同一条警告只说一次，避免每个 agent 循环都刷屏。
@@ -112,18 +113,18 @@ export default function skillTool(pi: ExtensionAPI) {
 		}
 	}
 
-	// Capture Pi's native expansion without changing the system prompt dynamically.
+	// Capture Pi's current skills and docs for the request-time section edit.
 	pi.on("before_agent_start", (event, ctx) => {
 		loadedSkillsThisTurn = extractExpandedSkillNames(
 			event.messageType === "user" ? event.prompt : undefined,
 		);
 
-		const discovered = event.systemPromptOptions?.skills as SkillEntry[] | undefined;
-		catalog.update({ skills: discovered });
+		discoveredSkills = (event.systemPromptOptions?.skills as SkillEntry[] | undefined) ?? [];
+		catalog.update({ skills: discoveredSkills });
 
 		const result = transformPrompt({
 			prompt: event.systemPrompt,
-			skills: discovered,
+			skills: discoveredSkills,
 			existingCapturedDocs: catalog.getCapturedDocs(),
 		});
 
@@ -134,8 +135,26 @@ export default function skillTool(pi: ExtensionAPI) {
 		for (const warning of result.warnings) {
 			warnOnce(warning.code, warning.message, ctx);
 		}
+	});
 
-		return result.modified ? { systemPrompt: result.prompt } : undefined;
+	// Apply the text edits to only the owning section at request time. This runs after
+	// prompt composition, so dynamically added sections and tool declarations stay intact.
+	pi.on("context_with_system", (event, ctx) => {
+		for (const message of event.messages) {
+			if (message.role !== "system" || !message.sections) continue;
+
+			const result = transformPromptSections(
+				message.sections,
+				discoveredSkills,
+				catalog.getCapturedDocs(),
+			);
+			if (result.capturedDocs) {
+				catalog.update({ capturedDocs: result.capturedDocs });
+			}
+			for (const warning of result.warnings) {
+				warnOnce(warning.code, warning.message, ctx);
+			}
+		}
 	});
 
 	pi.registerTool<typeof PARAMETERS, SkillToolDetails>({

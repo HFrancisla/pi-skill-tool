@@ -168,3 +168,63 @@ export function transformPrompt(input: TransformInput): TransformResult {
 		modified,
 	};
 }
+
+/** Find a rendered named section in a Pi-structured system prompt. */
+const PROMPT_SECTION_REGEXES = {
+	docs: /<docs>\n([\s\S]*?)\n<\/docs>/,
+	skills: /<skills>\n([\s\S]*?)\n<\/skills>/,
+} as const;
+
+function getSectionMatch(
+	prompt: string,
+	name: keyof typeof PROMPT_SECTION_REGEXES,
+): RegExpMatchArray | null {
+	return prompt.match(PROMPT_SECTION_REGEXES[name]);
+}
+
+/**
+ * Transform only the `docs` and `skills` values of Pi's structured system message.
+ * All other sections and message fields (including tool declarations) remain untouched.
+ */
+export function transformPromptSections(
+	sections: Record<string, string | null>,
+	skills?: PromptSkill[],
+	existingCapturedDocs?: string | null,
+): TransformResult {
+	const originalDocs = sections.docs;
+	const originalSkills = sections.skills;
+	const promptParts: string[] = [];
+
+	if (typeof originalDocs === "string") promptParts.push(originalDocs);
+	if (typeof originalSkills === "string") promptParts.push(originalSkills);
+	if (promptParts.length === 0) {
+		return {
+			prompt: "",
+			capturedDocs: existingCapturedDocs ?? null,
+			warnings: [],
+			modified: false,
+		};
+	}
+
+	const result = transformPrompt({
+		prompt: promptParts.join("\n\n"),
+		skills,
+		existingCapturedDocs,
+	});
+
+	const transformedDocs = getSectionMatch(result.prompt, "docs");
+	if (typeof originalDocs === "string" && transformedDocs === null && result.capturedDocs) {
+		sections.docs = null;
+	}
+
+	const transformedSkills = getSectionMatch(result.prompt, "skills")?.[0];
+	if (
+		typeof originalSkills === "string" &&
+		transformedSkills !== undefined &&
+		transformedSkills !== originalSkills
+	) {
+		sections.skills = transformedSkills;
+	}
+
+	return result;
+}

@@ -3,6 +3,7 @@ import test, { describe } from "node:test";
 import {
 	escapeXml,
 	locationLine,
+	stripSkillLocationLines,
 	NATIVE_INSTRUCTIONS,
 	PATH_RULE,
 	PI_DOCS_DESC,
@@ -57,6 +58,40 @@ function buildSamplePrompt(options: {
 }
 
 describe("PromptTransformer", () => {
+	test("strips known locations while preserving other skill-section text", () => {
+		const skill: PromptSkill = {
+			name: "code-review",
+			filePath: "/home/user/.pi/skills/code-review/SKILL.md",
+		};
+		const section = `Extension preface.\n<available_skills>\n  <skill>\n    <name>${skill.name}</name>\n    <description>Description</description>\n${locationLine(skill.filePath)}  </skill>\n</available_skills>\nExtension suffix.`;
+
+		const result = stripSkillLocationLines(section, [skill]);
+
+		assert.equal(result.removed, 1);
+		assert.ok(result.content.startsWith("Extension preface."));
+		assert.ok(result.content.endsWith("Extension suffix."));
+		assert.ok(result.content.includes(`<name>${skill.name}</name>`));
+		assert.ok(!result.content.includes("<location>"));
+	});
+
+	test("does not warn when locations were already removed before request-time transformation", () => {
+		const skill: PromptSkill = {
+			name: "code-review",
+			filePath: "/home/user/.pi/skills/code-review/SKILL.md",
+		};
+		const original = buildSamplePrompt({
+			includeDocs: true,
+			instruction: NATIVE_INSTRUCTIONS[0],
+			skills: [{ name: skill.name, location: skill.filePath }],
+		});
+		const preprocessed = stripSkillLocationLines(original, [skill]).content;
+
+		const result = transformPrompt({ prompt: preprocessed, skills: [skill] });
+
+		assert.ok(!result.warnings.some((warning) => warning.code === "locations-not-found"));
+		assert.ok(!result.prompt.includes("<location>"));
+	});
+
 	test("transforms standard prompt with read instruction and physical skills", () => {
 		const skills: PromptSkill[] = [
 			{ name: "code-review", filePath: "/home/user/.pi/skills/code-review/SKILL.md" },
@@ -277,16 +312,12 @@ ${locationLine(skill.filePath)}  </skill>
 			{ name: "code-review", filePath: "/home/user/.pi/skills/code-review/SKILL.md" },
 		];
 
-		// Prompt has skills block but no <location> line
-		let inputPrompt = buildSamplePrompt({
+		// The prompt contains a location, but it does not match the discovered skill path.
+		const inputPrompt = buildSamplePrompt({
 			includeDocs: true,
 			instruction: NATIVE_INSTRUCTIONS[0],
-			skills: [],
+			skills: [{ name: "code-review", location: "/other/path/SKILL.md" }],
 		});
-		inputPrompt = inputPrompt.replace(
-			"</available_skills>",
-			"  <skill>\n    <name>code-review</name>\n    <description>desc</description>\n  </skill>\n</available_skills>",
-		);
 
 		const result = transformPrompt({ prompt: inputPrompt, skills });
 

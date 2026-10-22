@@ -86,6 +86,28 @@ export function locationLine(filePath: string): string {
 	return `    <location>${escapeXml(filePath)}</location>\n`;
 }
 
+/** Remove known physical-skill paths from rendered available-skills catalogs. */
+export function stripSkillLocationLines(
+	content: string,
+	skills: PromptSkill[],
+): { content: string; removed: number } {
+	let removed = 0;
+	const transformed = content.replace(/<available_skills>[\s\S]*?<\/available_skills>/gu, (catalog) => {
+		let result = catalog;
+		for (const skill of skills) {
+			if (skill.disableModelInvocation) continue;
+			const line = locationLine(skill.filePath);
+			const count = result.split(line).length - 1;
+			if (count > 0) {
+				result = result.split(line).join("");
+				removed += count;
+			}
+		}
+		return result;
+	});
+	return { content: transformed, removed };
+}
+
 /**
  * 执行系统提示词转换管线（纯函数，零副作用）
  */
@@ -131,20 +153,14 @@ export function transformPrompt(input: TransformInput): TransformResult {
 			// ② 删掉相对路径解析规则
 			prompt = prompt.replace(PATH_RULE, "");
 
-			// ③ 删掉每条 <location>
-			let removed = 0;
-			for (const skill of shown) {
-				const line = locationLine(skill.filePath);
-				if (prompt.includes(line)) {
-					prompt = prompt.replace(line, "");
-					removed += 1;
-				}
-			}
-			if (removed === 0) {
+			// ③ 删掉模型可见目录中的已知 <location> 行
+			const strippedLocations = stripSkillLocationLines(prompt, shown);
+			prompt = strippedLocations.content;
+			if (prompt.includes("<location>")) {
 				warnings.push({
 					code: "locations-not-found",
 					message:
-						"未在系统提示中找到任何 <location> 行(pi 的输出格式可能已变更);已保留它们。",
+						"系统提示中仍有未匹配的 <location> 行(pi 的输出格式或技能列表可能已变更);已保留未匹配内容。",
 				});
 			}
 

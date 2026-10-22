@@ -43,7 +43,11 @@ import {
 	type SourceInfo,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { transformPrompt, transformPromptSections } from "./src/prompt-transformer.ts";
+import {
+	stripSkillLocationLines,
+	transformPrompt,
+	transformPromptSections,
+} from "./src/prompt-transformer.ts";
 import { extractExpandedSkillNames } from "./src/expanded-skills.ts";
 import { SkillCatalog } from "./src/skill-catalog.ts";
 
@@ -113,7 +117,7 @@ export default function skillTool(pi: ExtensionAPI) {
 		}
 	}
 
-	// Capture Pi's current skills and docs for the request-time section edit.
+	// Capture Pi's current skills and docs for the system-prompt edits.
 	pi.on("before_agent_start", (event, ctx) => {
 		loadedSkillsThisTurn = extractExpandedSkillNames(
 			event.messageType === "user" ? event.prompt : undefined,
@@ -130,6 +134,17 @@ export default function skillTool(pi: ExtensionAPI) {
 
 		if (result.capturedDocs) {
 			catalog.update({ capturedDocs: result.capturedDocs });
+		}
+
+		// Persist the path-free skills section in Pi's structured system message,
+		// not only in the request-local context transform. Use the fully rendered
+		// section so additions from earlier extensions are retained.
+		const skillsSection = event.systemPrompt.match(/<skills>\n([\s\S]*?)\n<\/skills>/);
+		if (skillsSection) {
+			const stripped = stripSkillLocationLines(skillsSection[1], discoveredSkills);
+			if (stripped.removed > 0) {
+				event.systemPromptOptions.sections.skills = stripped.content;
+			}
 		}
 
 		for (const warning of result.warnings) {

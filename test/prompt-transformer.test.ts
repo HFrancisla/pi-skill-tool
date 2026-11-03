@@ -157,6 +157,20 @@ ${locationLine(skill.filePath)}  </skill>
 		assert.ok(result.prompt.includes(`<name>${PI_DOCS_NAME}</name>`));
 	});
 
+	test("captures the current Pi docs wording from the structured docs section", () => {
+		const docsText = `Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation: /path/to/pi/README.md
+- Additional docs: /path/to/pi/docs
+- Examples: /path/to/pi/examples`;
+		const inputPrompt = `<tools>\n- read: Read a file\n</tools>\n\n<docs>\n${docsText}\n</docs>`;
+
+		const result = transformPrompt({ prompt: inputPrompt, skills: [] });
+
+		assert.equal(result.capturedDocs, docsText);
+		assert.ok(!result.prompt.includes("<docs>"));
+		assert.ok(!result.warnings.some((warning) => warning.code === "docs-block-not-found"));
+	});
+
 	test("only changes docs and matched text in skills, preserving all other sections", () => {
 		const skill: PromptSkill = {
 			name: "code-review",

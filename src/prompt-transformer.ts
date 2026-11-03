@@ -35,7 +35,7 @@ export const PI_DOCS_DESC =
 
 /** 匹配 Pi 默认提示词中的文档块（旧版裸文本与当前 <docs> 区块）。 */
 export const PI_DOCS_BLOCK_REGEX =
-	/<docs>\n(Pi documentation \(read only when the user asks about pi itself[\s\S]*?)\n<\/docs>|\n\n(Pi documentation \(read only when the user asks about pi itself[\s\S]*?\(e\.g\., tui\.md for TUI API details\))/;
+	/<docs>\r?\n(Pi documentation\b[\s\S]*?)\r?\n<\/docs>|\r?\n\r?\n(Pi documentation \(read only when the user asks about pi itself[\s\S]*?\(e\.g\., tui\.md for TUI API details\))/;
 
 /**
  * 技能结构接口（自包含定义，不依赖任何外部 SDK）
